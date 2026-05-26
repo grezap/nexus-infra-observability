@@ -32,10 +32,10 @@ resource "null_resource" "tempo_vault_agent" {
   for_each = local.tempo_vault_agent_active
 
   triggers = {
-    creds_file_path   = "${local.tempo_va_creds_dir_expanded}/vault-agent-observability-${each.key}.json"
-    creds_file_hash   = filesha256("${local.tempo_va_creds_dir_expanded}/vault-agent-observability-${each.key}.json")
-    nftables_id       = length(null_resource.tempo_nftables_backplane) > 0 ? null_resource.tempo_nftables_backplane[0].id : "disabled"
-    vault_version     = var.vault_agent_version
+    creds_file_path    = "${local.tempo_va_creds_dir_expanded}/vault-agent-observability-${each.key}.json"
+    creds_file_hash    = filesha256("${local.tempo_va_creds_dir_expanded}/vault-agent-observability-${each.key}.json")
+    nftables_id        = length(null_resource.tempo_nftables_backplane) > 0 ? null_resource.tempo_nftables_backplane[0].id : "disabled"
+    vault_version      = var.vault_agent_version
     tempo_va_overlay_v = "1"
 
     destroy_vm_ip    = each.value.vm_ip

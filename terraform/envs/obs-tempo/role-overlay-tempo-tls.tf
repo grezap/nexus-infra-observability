@@ -33,7 +33,7 @@ resource "null_resource" "tempo_tls" {
   triggers = {
     va_id         = null_resource.tempo_vault_agent[each.key].id
     pki_role_name = var.vault_pki_obs_role_name
-    tempo_tls_v    = "1"
+    tempo_tls_v   = "1"
 
     destroy_vm_ip    = each.value.vmnet11
     destroy_ssh_user = var.obs_node_user
