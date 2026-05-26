@@ -1,0 +1,24 @@
+---
+# obs-tempo-node -- Ansible playbook (local, Packer ansible-local).
+# Per-engine template: Grafana Tempo single-binary simple-scalable (Phase 0.I.3, ADR-0038).
+
+- name: Configure obs-tempo-node template (Phase 0.I.3)
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_user: "{{ target_user | default('nexusadmin') }}"
+    obs_tempo_version: "{{ obs_tempo_version | default('2.7.2') }}"
+    obs_tempo_download_url: >-
+      {{ obs_tempo_download_url |
+         default('https://github.com/grafana/tempo/releases/download/v2.7.2/tempo_2.7.2_linux_amd64.tar.gz') }}
+
+  roles:
+    - nexus_identity
+    - nexus_network
+    - nexus_firewall
+    - nexus_observability
+    - observability_firstboot
+    - obs_tempo

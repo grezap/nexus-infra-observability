@@ -1,0 +1,10 @@
+# PLACEHOLDER -- overwritten by terraform/envs/obs-tempo/role-overlay-tempo-config.tf
+# at apply time. Phase 0.I.3, ADR-0038.
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/lib/nexus-tempo/blocks
