@@ -1,0 +1,144 @@
+name: packer-validate
+
+# Mirrors nexus-infra-registry/.github/workflows/packer-validate.yml shape.
+# Per-engine Packer templates + per-cluster Terraform env (the 0.G.3.5
+# architectural canon, applied from day one per
+# memory/feedback_per_cluster_state_per_engine_template.md). Five-job structure:
+# packer (matrix) + terraform (matrix) + ansible-lint + shell-lint + gitleaks.
+#
+# Phase 0.I (observability tier, ADR-0038): six per-engine templates +
+# five per-cluster envs. Sub-phases unlock the matrix entries as they land
+# (0.I.1 → obs-prom-node + envs/obs-prom; 0.I.2 → obs-loki-node + envs/obs-loki; etc.).
+# Per memory/feedback_post_push_ci_check.md: every push must be CI-green-verified.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  packer:
+    name: Packer validate (${{ matrix.template }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        template:
+          - obs-prom-node            # Phase 0.I.1 per-engine (Prometheus + Alertmanager)
+          # - obs-loki-node          # Phase 0.I.2 per-engine (Loki simple-scalable)
+          # - obs-tempo-node         # Phase 0.I.3 per-engine (Tempo scalable)
+          # - obs-grafana-node       # Phase 0.I.4 per-engine (Grafana HA + keepalived)
+          # - obs-grafana-pg-node    # Phase 0.I.4 per-engine (Grafana PG HA + keepalived)
+          # - obs-otel-collector-node # Phase 0.I.5 per-engine (OTel Collector)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: "1.11.2"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.config/packer/plugins
+          key: packer-plugins-${{ runner.os }}-${{ hashFiles('packer/**/*.pkr.hcl') }}
+          restore-keys: |
+            packer-plugins-${{ runner.os }}-
+
+      - name: packer init
+        working-directory: packer/${{ matrix.template }}
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: packer init .
+
+      - name: packer fmt -check
+        working-directory: packer/${{ matrix.template }}
+        run: packer fmt -check -recursive .
+
+      - name: packer validate
+        working-directory: packer/${{ matrix.template }}
+        run: packer validate -syntax-only .
+
+  terraform:
+    name: Terraform fmt + validate (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - envs/obs-prom         # Phase 0.I.1 per-cluster (Prom HA pair + Alertmanager mesh)
+          # - envs/obs-loki       # Phase 0.I.2 per-cluster (3 Loki SSD nodes)
+          # - envs/obs-tempo      # Phase 0.I.3 per-cluster (3 Tempo scalable nodes)
+          # - envs/obs-grafana    # Phase 0.I.4 per-cluster (2 Grafana + 2 Grafana PG + 2 VIPs)
+          # - envs/obs-otel       # Phase 0.I.5 per-cluster (2 OTel Collector nodes)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - name: terraform fmt -check (repo-wide)
+        run: terraform -chdir=terraform fmt -check -recursive
+      - name: terraform init (no backend)
+        run: terraform -chdir=terraform/${{ matrix.env }} init -backend=false
+      - name: terraform validate
+        run: terraform -chdir=terraform/${{ matrix.env }} validate
+
+  ansible-lint:
+    name: ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ansible-lint ansible
+      - run: ansible-lint packer/obs-prom-node/ansible/ packer/_shared/ansible/
+
+  shell-lint:
+    name: ShellCheck + PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck (firstboot + role bash)
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: ./packer/_shared/ansible/roles
+          severity: warning
+        continue-on-error: true
+      - name: PSScriptAnalyzer (operator wrapper + smoke scripts)
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          $targets = @('scripts') | Where-Object { Test-Path $_ }
+          $issues = foreach ($t in $targets) {
+            Invoke-ScriptAnalyzer -Path $t -Recurse -Severity Warning,Error `
+              -ExcludeRule PSAvoidUsingWriteHost,PSUseShouldProcessForStateChangingFunctions
+          }
+          if ($issues) {
+            $issues | Format-Table -AutoSize | Out-String | Write-Host
+            $errors = $issues | Where-Object Severity -eq 'Error'
+            if ($errors) { throw "PSScriptAnalyzer: $($errors.Count) error(s)" }
+          } else {
+            Write-Host "PSScriptAnalyzer: clean"
+          }
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks detect
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_SUMMARY: "true"
