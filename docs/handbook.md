@@ -109,7 +109,53 @@ All three are idempotent: re-applying creates only the new obs-tier
 
 ### §1.3 Apply Phase 0.I.1 (Prom HA + Alertmanager)
 
-(Sub-phase walkthrough lands when 0.I.1 is sealed.)
+```powershell
+# in nexus-infra-observability
+terraform -chdir=terraform/envs/obs-prom init   # first time only
+pwsh -File scripts\observability.ps1 prom apply
+```
+
+Apply graph (per `terraform/envs/obs-prom/main.tf`):
+
+1. `module.prom_1..2` — `vmrun clone` (full) → `configure-vm-nic.ps1`
+   (rewrites the cloned `.vmx` for dual-NIC VMnet11 + VMnet10) → power on; the
+   baked firstboot self-selects hostname/role/backplane-IP from the DHCP IP.
+2. `null_resource.prom_nftables_backplane` — base64-encoded ruleset →
+   `nft -f /etc/nftables.conf` on both nodes.
+3. `null_resource.prom_vault_agent` (×2) — install Vault Agent v1.18.5,
+   stage role-id/secret-id/ca-bundle, render `/etc/vault-agent/00-base.hcl`
+   + the systemd unit, enable + start. Token sink lands at
+   `/var/run/nexus-vault-agent/token`.
+4. `null_resource.prom_tls` (×2) — render `/etc/vault-agent/60-template-
+   prom-tls.hcl` → Vault Agent fetches a per-host leaf cert from
+   `pki_int/issue/observability-server` → `prom-tls-split.sh` splits
+   leaf/key/ca into `/etc/nexus-{prometheus,alertmanager}/tls/{server.crt,
+   server.key,ca.crt}` (PKCS#8 keys, the canonical format both Prom + AM
+   accept).
+5. `null_resource.prom_config` (×2) — render 4 Vault Agent templates
+   (prometheus.yml + 1 web.yml + alertmanager.yml + 1 web.yml) + 1 static
+   env file (`/etc/nexus-alertmanager/cluster.env` with `NEXUS_VMNET10_IP`
+   + `NEXUS_AM_PEER=<other node's backplane>:9094`). Restart Vault Agent
+   to apply.
+6. `null_resource.prom_bootstrap` — **parallel** enable+start (PS
+   `Start-Job` per node) of both `nexus-prometheus.service` +
+   `nexus-alertmanager.service` so the AM gossip mesh forms on first boot.
+   Verifies: (a) Prom + AM `/-/ready` returns 200 on both nodes within
+   60s, (b) AM `/api/v2/status .cluster.peers` count == 2 within 45s
+   (via `jq` on the obs nodes).
+
+Total apply wall-clock ~8-10 min on a 256 GB build host (~3 min VM clones
++ ~2 min apt/Vault Agent install + ~1 min cert + config render + ~1 min
+service start + mesh form + verify).
+
+### §1.4 Verify Phase 0.I.1
+
+```powershell
+pwsh -File scripts\smoke-0.I.1.ps1
+```
+
+33 checks across 12 sections per ADR-0038 §Acceptance gates. Expected:
+`ALL 0.I.1 SMOKE CHECKS PASSED`.
 
 ---
 
@@ -117,7 +163,7 @@ All three are idempotent: re-applying creates only the new obs-tier
 
 | Sub | What | Status | Smoke |
 |---|---|---|---|
-| 0.I.1 | Prom HA + Alertmanager | scaffolded 2026-05-26 | — |
+| 0.I.1 | Prom HA + Alertmanager | **LIVE-RATIFIED 2026-05-27** (7 transients fixed in source, §3.A) | smoke-0.I.1 33/33 GREEN |
 | 0.I.2 | Loki SSD on MinIO | pending | — |
 | 0.I.3 | Tempo scalable on MinIO | pending | — |
 | 0.I.4 | Grafana HA + Grafana PG HA + 2 VIPs | pending | — |
