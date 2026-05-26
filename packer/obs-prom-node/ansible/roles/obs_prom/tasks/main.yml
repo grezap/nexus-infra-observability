@@ -8,22 +8,18 @@
 # nexus-alertmanager/alertmanager.yml at apply time (from vms.yaml + KV creds)
 # then enable + start the units on both nodes together so the AM mesh forms.
 
-# ─── prometheus user + group ───────────────────────────────────────────────
-- name: Ensure prometheus group
-  ansible.builtin.group:
-    name: prometheus
-    system: true
-    state: present
-
-- name: Ensure prometheus user
-  ansible.builtin.user:
-    name: prometheus
-    group: prometheus
-    system: true
-    shell: /usr/sbin/nologin
-    home: /var/lib/nexus-prometheus
-    create_home: false
-    state: present
+# ─── prometheus user/group already provisioned by apt ─────────────────────
+# Transient #1 (codified in handbook §3.1 #T1): the preseed installs
+# prometheus-node-exporter which (a) creates the `prometheus` system user
+# and (b) starts the node-exporter systemd unit AS user prometheus. A
+# subsequent `usermod` here fails with "user prometheus is currently used
+# by process N" (rc=8). Fix: assert presence without modification; the apt
+# defaults (shell /usr/sbin/nologin, system user) are exactly what we want.
+- name: Assert prometheus user + group exist (provisioned by apt prometheus-node-exporter)
+  ansible.builtin.getent:
+    database: passwd
+    key: prometheus
+  failed_when: getent_passwd is not defined or getent_passwd.prometheus is not defined
 
 # ─── alertmanager user + group ────────────────────────────────────────────
 - name: Ensure alertmanager group

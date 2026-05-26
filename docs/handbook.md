@@ -133,6 +133,13 @@ All three are idempotent: re-applying creates only the new obs-tier
 transient root-caused + permanently fixed in source, mirroring the existing
 nexus-infra-{kafka,oltp,analytics,lakehouse,registry} handbook §3 patterns.)
 
+### §3.A Phase 0.I.1 (Prom HA + Alertmanager) apply-time transients
+
+| # | Symptom | Root cause | Permanent fix |
+|---|---|---|---|
+| T1 | `packer build` fails on `obs_prom` role task "Ensure prometheus user" with `usermod: user prometheus is currently used by process 639` (rc=8). | The Debian preseed installs `prometheus-node-exporter` which (a) creates the `prometheus` system user and (b) starts the node-exporter systemd unit running AS user prometheus. A subsequent `ansible.builtin.user` with `state: present` + a different `home`/`shell` tries to `usermod` the now-in-use account, which Linux refuses to touch. | `packer/obs-prom-node/ansible/roles/obs_prom/tasks/main.yml` — replaced the user/group creation tasks with a `getent` presence assertion. The apt-package defaults (shell `/usr/sbin/nologin`, system user) are exactly what the Prom server needs; no modification required. Caught 2026-05-26 in the first 0.I.1 packer build. |
+
+
 ### §3.1 Cold-rebuild canon
 
 The canonical cold-rebuild sequence for the obs tier:
