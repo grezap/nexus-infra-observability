@@ -1,0 +1,50 @@
+[Unit]
+Description=Prometheus monitoring system + time-series DB (NexusPlatform; obs-prom-node, Phase 0.I.1)
+Documentation=https://prometheus.io/docs/
+After=network-online.target observability-node-firstboot.service
+Wants=network-online.target
+Requires=observability-node-firstboot.service
+
+[Service]
+Type=simple
+User=prometheus
+Group=prometheus
+WorkingDirectory=/var/lib/nexus-prometheus
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/nexus-prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/nexus-prometheus \
+  --storage.tsdb.retention.time=30d \
+  --storage.tsdb.retention.size=50GB \
+  --web.listen-address=0.0.0.0:9090 \
+  --web.config.file=/etc/nexus-prometheus/web.yml \
+  --web.enable-lifecycle \
+  --web.enable-admin-api \
+  --web.external-url=https://prometheus.nexus.lab/ \
+  --web.route-prefix=/
+
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Per memory/feedback_systemd_runtime_directory_tmpfs.md -- use systemd's
+# RuntimeDirectory= for /var/run/<svc> (tmpfs wipe-on-reboot).
+RuntimeDirectory=nexus-prometheus
+RuntimeDirectoryMode=0750
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+LimitNOFILE=65536
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false  # Go runtime needs JIT-ish allocations
+
+[Install]
+WantedBy=multi-user.target

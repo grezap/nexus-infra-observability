@@ -1,0 +1,37 @@
+---
+# observability_firstboot -- shared role that installs the observability-tier
+# firstboot script + systemd unit on any per-engine template (obs-prom-node,
+# obs-loki-node, obs-tempo-node, obs-grafana-node, obs-grafana-pg-node,
+# obs-otel-collector-node).
+#
+# Ported from nexus-infra-lakehouse's lakehouse_firstboot at Phase 0.I scaffold.
+# The firstboot script (files/observability-node-firstboot.sh) is role-agnostic:
+# it does NIC discrimination + IP->hostname mapping across ALL Phase 0.I obs
+# tier IPs (Prom .170/.171, Loki .172-.174, Tempo .175-.177, Grafana .178/.179,
+# Grafana-PG .180/.181, OTel .182/.183) and self-selects the role from its own
+# DHCP IP. Inert IPs on a given clone just don't match + get skipped.
+#
+# The systemd unit gates on the firstboot done-marker so the script runs exactly
+# once per clone.
+
+- name: Install observability-node-firstboot.sh
+  ansible.builtin.copy:
+    src: observability-node-firstboot.sh
+    dest: /usr/local/sbin/observability-node-firstboot.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install observability-node-firstboot.service systemd unit
+  ansible.builtin.template:
+    src: observability-node-firstboot.service.j2
+    dest: /etc/systemd/system/observability-node-firstboot.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable observability-node-firstboot.service (runs once on first clone boot)
+  ansible.builtin.systemd:
+    name: observability-node-firstboot.service
+    enabled: true
+    daemon_reload: true

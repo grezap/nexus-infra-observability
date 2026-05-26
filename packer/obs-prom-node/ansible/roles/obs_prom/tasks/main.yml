@@ -1,0 +1,186 @@
+---
+# obs_prom -- per-engine role for obs-prom-node (Phase 0.I.1, ADR-0038).
+# Installs Prometheus + Alertmanager from upstream release tarballs (Go binaries;
+# no apt package -- the apt versions lag months behind upstream).
+#
+# Both systemd units are delivered DISABLED. The Terraform obs-prom env's role
+# overlays render the per-host /etc/nexus-prometheus/prometheus.yml + /etc/
+# nexus-alertmanager/alertmanager.yml at apply time (from vms.yaml + KV creds)
+# then enable + start the units on both nodes together so the AM mesh forms.
+
+# ─── prometheus user + group ───────────────────────────────────────────────
+- name: Ensure prometheus group
+  ansible.builtin.group:
+    name: prometheus
+    system: true
+    state: present
+
+- name: Ensure prometheus user
+  ansible.builtin.user:
+    name: prometheus
+    group: prometheus
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/nexus-prometheus
+    create_home: false
+    state: present
+
+# ─── alertmanager user + group ────────────────────────────────────────────
+- name: Ensure alertmanager group
+  ansible.builtin.group:
+    name: alertmanager
+    system: true
+    state: present
+
+- name: Ensure alertmanager user
+  ansible.builtin.user:
+    name: alertmanager
+    group: alertmanager
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/nexus-alertmanager
+    create_home: false
+    state: present
+
+# ─── download + extract Prometheus ─────────────────────────────────────────
+- name: Download Prometheus tarball
+  ansible.builtin.get_url:
+    url: "{{ obs_prometheus_download_url }}"
+    dest: "/tmp/prometheus-{{ obs_prometheus_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+    timeout: 120
+
+- name: Create /opt/prometheus
+  ansible.builtin.file:
+    path: /opt/prometheus
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+
+- name: Extract Prometheus
+  ansible.builtin.unarchive:
+    src: "/tmp/prometheus-{{ obs_prometheus_version }}.linux-amd64.tar.gz"
+    dest: /opt/prometheus
+    extra_opts: ['--strip-components=1']
+    owner: prometheus
+    group: prometheus
+    remote_src: true
+    creates: /opt/prometheus/prometheus
+
+- name: Symlink prometheus + promtool to /usr/local/bin
+  ansible.builtin.file:
+    src: "/opt/prometheus/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+  loop:
+    - prometheus
+    - promtool
+
+# ─── download + extract Alertmanager ───────────────────────────────────────
+- name: Download Alertmanager tarball
+  ansible.builtin.get_url:
+    url: "{{ obs_alertmanager_download_url }}"
+    dest: "/tmp/alertmanager-{{ obs_alertmanager_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+    timeout: 120
+
+- name: Create /opt/alertmanager
+  ansible.builtin.file:
+    path: /opt/alertmanager
+    state: directory
+    owner: alertmanager
+    group: alertmanager
+    mode: '0755'
+
+- name: Extract Alertmanager
+  ansible.builtin.unarchive:
+    src: "/tmp/alertmanager-{{ obs_alertmanager_version }}.linux-amd64.tar.gz"
+    dest: /opt/alertmanager
+    extra_opts: ['--strip-components=1']
+    owner: alertmanager
+    group: alertmanager
+    remote_src: true
+    creates: /opt/alertmanager/alertmanager
+
+- name: Symlink alertmanager + amtool to /usr/local/bin
+  ansible.builtin.file:
+    src: "/opt/alertmanager/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+  loop:
+    - alertmanager
+    - amtool
+
+# ─── config dirs + data dirs (config dropped + actual data written by TF overlay)
+- name: Create /etc/nexus-prometheus + /var/lib/nexus-prometheus
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/nexus-prometheus,             owner: root,       group: prometheus, mode: '0750' }
+    - { path: /etc/nexus-prometheus/tls,         owner: root,       group: prometheus, mode: '0750' }
+    - { path: /etc/nexus-prometheus/rules,       owner: root,       group: prometheus, mode: '0750' }
+    - { path: /var/lib/nexus-prometheus,         owner: prometheus, group: prometheus, mode: '0755' }
+    - { path: /etc/nexus-alertmanager,           owner: root,       group: alertmanager, mode: '0750' }
+    - { path: /etc/nexus-alertmanager/tls,       owner: root,       group: alertmanager, mode: '0750' }
+    - { path: /etc/nexus-alertmanager/templates, owner: root,       group: alertmanager, mode: '0750' }
+    - { path: /var/lib/nexus-alertmanager,       owner: alertmanager, group: alertmanager, mode: '0755' }
+
+# Drop placeholder configs so the binary smoke-checks have something to validate
+# against during bake. The TF overlay at apply time overwrites both files with
+# the real config (scrape targets, mesh peers, cert paths, KV-rendered creds).
+- name: Drop placeholder prometheus.yml (overwritten by TF overlay at apply)
+  ansible.builtin.copy:
+    src: prometheus.yml
+    dest: /etc/nexus-prometheus/prometheus.yml
+    owner: root
+    group: prometheus
+    mode: '0640'
+
+- name: Drop placeholder alertmanager.yml (overwritten by TF overlay at apply)
+  ansible.builtin.copy:
+    src: alertmanager.yml
+    dest: /etc/nexus-alertmanager/alertmanager.yml
+    owner: root
+    group: alertmanager
+    mode: '0640'
+
+# ─── systemd units (delivered DISABLED) ────────────────────────────────────
+- name: Install nexus-prometheus.service systemd unit
+  ansible.builtin.copy:
+    src: nexus-prometheus.service
+    dest: /etc/systemd/system/nexus-prometheus.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install nexus-alertmanager.service systemd unit
+  ansible.builtin.copy:
+    src: nexus-alertmanager.service
+    dest: /etc/systemd/system/nexus-alertmanager.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reload systemd + ensure both services DISABLED at bake
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  loop:
+    - nexus-prometheus.service
+    - nexus-alertmanager.service
+
+# ─── cleanup ──────────────────────────────────────────────────────────────
+- name: Remove downloaded tarballs (saved ~150 MB)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/prometheus-{{ obs_prometheus_version }}.linux-amd64.tar.gz"
+    - "/tmp/alertmanager-{{ obs_alertmanager_version }}.linux-amd64.tar.gz"

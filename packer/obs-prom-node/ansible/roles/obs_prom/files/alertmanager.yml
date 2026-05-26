@@ -1,0 +1,18 @@
+# PLACEHOLDER -- overwritten by terraform/envs/obs-prom/role-overlay-prom-config.tf
+# at apply time. The real config carries the mesh peer URLs + routing tree +
+# KV-rendered webhook/Slack/email creds. Phase 0.I.1, ADR-0038.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'cluster']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'null'
+
+receivers:
+  - name: 'null'
+
+# Real config rendered post-apply.

@@ -1,0 +1,49 @@
+[Unit]
+Description=Prometheus Alertmanager (NexusPlatform; obs-prom-node mesh peer, Phase 0.I.1)
+Documentation=https://prometheus.io/docs/alerting/latest/alertmanager/
+After=network-online.target observability-node-firstboot.service
+Wants=network-online.target
+Requires=observability-node-firstboot.service
+
+[Service]
+Type=simple
+User=alertmanager
+Group=alertmanager
+WorkingDirectory=/var/lib/nexus-alertmanager
+# Mesh peer is the OTHER prom node on VMnet10 backplane :9094. NEXUS_AM_PEER is
+# rendered by the TF overlay at apply time (prom-1 -> peer=prom-2:9094, etc.).
+EnvironmentFile=/etc/nexus-alertmanager/cluster.env
+ExecStart=/usr/local/bin/alertmanager \
+  --config.file=/etc/nexus-alertmanager/alertmanager.yml \
+  --storage.path=/var/lib/nexus-alertmanager \
+  --web.listen-address=0.0.0.0:9093 \
+  --web.config.file=/etc/nexus-alertmanager/web.yml \
+  --web.external-url=https://alertmanager.nexus.lab/ \
+  --web.route-prefix=/ \
+  --cluster.listen-address=0.0.0.0:9094 \
+  --cluster.advertise-address=${NEXUS_VMNET10_IP}:9094 \
+  --cluster.peer=${NEXUS_AM_PEER}
+
+ExecReload=/bin/kill -HUP $MAINPID
+
+RuntimeDirectory=nexus-alertmanager
+RuntimeDirectoryMode=0750
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target

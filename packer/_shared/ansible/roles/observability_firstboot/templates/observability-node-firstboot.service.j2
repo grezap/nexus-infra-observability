@@ -1,0 +1,22 @@
+[Unit]
+Description=observability-node firstboot (NIC discovery, hostname mapping, VMnet10 backplane, node-identity env)
+After=systemd-networkd.service network-online.target
+Wants=network-online.target
+# No Before= for the role services -- firstboot does NOT enable any
+# Prometheus / Alertmanager / Loki / Tempo / Grafana / Grafana-PG / OTel
+# service. Their config needs per-host data rendered by the Terraform
+# role-overlays (Prom scrape config, Alertmanager mesh peers, Loki/Tempo
+# memberlist seeds, Grafana datasource pre-provisioning, PG streaming
+# replication + keepalived VIP). The role-overlays enable exactly one
+# role service per node post-apply.
+ConditionPathExists=!/var/lib/observability-node-firstboot-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/observability-node-firstboot.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
