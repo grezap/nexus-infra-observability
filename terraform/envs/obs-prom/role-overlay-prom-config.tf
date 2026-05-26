@@ -39,7 +39,7 @@ resource "null_resource" "prom_config" {
   triggers = {
     tls_id           = null_resource.prom_tls[each.key].id
     peer_vmnet10     = each.value.peer_vmnet10
-    prom_config_v    = "1"
+    prom_config_v    = "3" # v3: T6 fix -- drop basic_auth_users from web.yml (TLS-only; smoke /-/ready no longer 401s)
     kv_web_auth_path = var.kv_prom_web_auth_path
     kv_am_auth_path  = var.kv_alertmanager_web_auth_path
 
@@ -127,6 +127,12 @@ EOT
 }
 "@
 
+      # Prom + AM web.yml: TLS only for v0.1 (no basic_auth_users -- the
+      # basic_auth gates ALL endpoints including /-/ready, which makes the
+      # bootstrap overlay readiness probe impossible without baking the
+      # admin password into the probe. Grafana adds session auth in 0.I.4
+      # as the real human-facing auth story; the obs tier is internal-only
+      # so TLS at the wire layer is sufficient. T6 transient (handbook §3.A).
       $promWebTemplate = @"
 # 71-template-prometheus-webyml.hcl -- Phase 0.I.1 (rendered for $hostName).
 template {
@@ -135,9 +141,6 @@ tls_server_config:
   cert_file: /etc/nexus-prometheus/tls/server.crt
   key_file:  /etc/nexus-prometheus/tls/server.key
   client_auth_type: NoClientCert
-
-basic_auth_users:
-  admin: {{ with secret `"$kvWebPath`" }}{{ .Data.data.password_bcrypt }}{{ end }}
 EOT
   destination = "/etc/nexus-prometheus/web.yml"
   perms       = "0640"
@@ -181,9 +184,6 @@ tls_server_config:
   cert_file: /etc/nexus-alertmanager/tls/server.crt
   key_file:  /etc/nexus-alertmanager/tls/server.key
   client_auth_type: NoClientCert
-
-basic_auth_users:
-  admin: {{ with secret `"$kvAmPath`" }}{{ .Data.data.password_bcrypt }}{{ end }}
 EOT
   destination = "/etc/nexus-alertmanager/web.yml"
   perms       = "0640"
@@ -194,11 +194,13 @@ EOT
 
       # cluster.env is rendered as a regular env file (not a Vault Agent template,
       # since the AM mesh peer URL is static cluster topology).
+      # T5 transient (handbook §3.A): `$peerVmnet10:9094` parses as scope-
+      # qualified var per feedback_powershell_url_scope_qualifier.md; brace it.
       $clusterEnv = @"
 # Phase 0.I.1 -- /etc/nexus-alertmanager/cluster.env. Static topology vars
 # consumed by nexus-alertmanager.service (EnvironmentFile=).
 NEXUS_VMNET10_IP=$vmnet10
-NEXUS_AM_PEER=$peerVmnet10:9094
+NEXUS_AM_PEER=$${peerVmnet10}:9094
 "@
 
       $promYmlB64    = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes(($promYmlTemplate -replace "`r`n","`n")))

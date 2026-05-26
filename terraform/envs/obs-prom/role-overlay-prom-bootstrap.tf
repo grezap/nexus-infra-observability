@@ -20,7 +20,7 @@ resource "null_resource" "prom_bootstrap" {
 
   triggers = {
     config_ids       = join(",", [for h in keys(local.prom_config_active) : null_resource.prom_config[h].id])
-    prom_bootstrap_v = "1"
+    prom_bootstrap_v = "2" # v2: T7 fix -- jq instead of python3 for AM cluster.peers count
     obs_user_destroy = var.obs_node_user
   }
 
@@ -89,13 +89,16 @@ sudo systemctl is-active nexus-alertmanager.service
       }
       Write-Host "[prom-bootstrap] both Prom + AM up on both nodes"
 
-      # Verify AM mesh cluster size = 2 on both nodes (gossip on backplane :9094)
+      # Verify AM mesh cluster size = 2 on both nodes (gossip on backplane :9094).
+      # T7 transient (handbook §3.A): python3 -c with escaped double-quotes
+      # crossed shell + PS + Terraform heredoc boundaries badly. jq is on the
+      # baseline image (installed via the preseed pkgsel/include list).
       $clusterDeadline = (Get-Date).AddSeconds(45)
       $clusterReady = $false
       while ((Get-Date) -lt $clusterDeadline) {
         $bothOk = $true
         foreach ($n in $nodes) {
-          $peerCount = (ssh @sshOpts "$sshUser@$($n.ip)" "curl -fsk --resolve $($n.name).nexus.lab:9093:127.0.0.1 https://$($n.name).nexus.lab:9093/api/v2/status 2>/dev/null | python3 -c 'import sys, json; d=json.load(sys.stdin); print(len(d[\`"cluster\`"][\`"peers\`"]))'" 2>&1 | Out-String).Trim()
+          $peerCount = (ssh @sshOpts "$sshUser@$($n.ip)" "curl -fsk --resolve $($n.name).nexus.lab:9093:127.0.0.1 https://$($n.name).nexus.lab:9093/api/v2/status 2>/dev/null | jq '.cluster.peers | length'" 2>&1 | Out-String).Trim()
           if ($peerCount -ne '2') { $bothOk = $false; $lastDiag = "$($n.name) AM cluster size = $peerCount (want 2)" }
         }
         if ($bothOk) { $clusterReady = $true; break }
