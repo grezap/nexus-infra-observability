@@ -11,9 +11,13 @@
   vars:
     target_user: "{{ target_user | default('nexusadmin') }}"
     obs_prometheus_version: "{{ obs_prometheus_version | default('2.55.1') }}"
-    obs_prometheus_download_url: "{{ obs_prometheus_download_url | default('https://github.com/prometheus/prometheus/releases/download/v2.55.1/prometheus-2.55.1.linux-amd64.tar.gz') }}"
+    obs_prometheus_download_url: >-
+      {{ obs_prometheus_download_url |
+         default('https://github.com/prometheus/prometheus/releases/download/v2.55.1/prometheus-2.55.1.linux-amd64.tar.gz') }}
     obs_alertmanager_version: "{{ obs_alertmanager_version | default('0.28.0') }}"
-    obs_alertmanager_download_url: "{{ obs_alertmanager_download_url | default('https://github.com/prometheus/alertmanager/releases/download/v0.28.0/alertmanager-0.28.0.linux-amd64.tar.gz') }}"
+    obs_alertmanager_download_url: >-
+      {{ obs_alertmanager_download_url |
+         default('https://github.com/prometheus/alertmanager/releases/download/v0.28.0/alertmanager-0.28.0.linux-amd64.tar.gz') }}
 
   roles:
     - nexus_identity

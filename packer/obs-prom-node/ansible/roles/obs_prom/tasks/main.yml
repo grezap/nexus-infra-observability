@@ -117,14 +117,14 @@
     group: "{{ item.group }}"
     mode: "{{ item.mode }}"
   loop:
-    - { path: /etc/nexus-prometheus,             owner: root,       group: prometheus, mode: '0750' }
-    - { path: /etc/nexus-prometheus/tls,         owner: root,       group: prometheus, mode: '0750' }
-    - { path: /etc/nexus-prometheus/rules,       owner: root,       group: prometheus, mode: '0750' }
-    - { path: /var/lib/nexus-prometheus,         owner: prometheus, group: prometheus, mode: '0755' }
-    - { path: /etc/nexus-alertmanager,           owner: root,       group: alertmanager, mode: '0750' }
-    - { path: /etc/nexus-alertmanager/tls,       owner: root,       group: alertmanager, mode: '0750' }
-    - { path: /etc/nexus-alertmanager/templates, owner: root,       group: alertmanager, mode: '0750' }
-    - { path: /var/lib/nexus-alertmanager,       owner: alertmanager, group: alertmanager, mode: '0755' }
+    - { path: /etc/nexus-prometheus, owner: root, group: prometheus, mode: '0750' }
+    - { path: /etc/nexus-prometheus/tls, owner: root, group: prometheus, mode: '0750' }
+    - { path: /etc/nexus-prometheus/rules, owner: root, group: prometheus, mode: '0750' }
+    - { path: /var/lib/nexus-prometheus, owner: prometheus, group: prometheus, mode: '0755' }
+    - { path: /etc/nexus-alertmanager, owner: root, group: alertmanager, mode: '0750' }
+    - { path: /etc/nexus-alertmanager/tls, owner: root, group: alertmanager, mode: '0750' }
+    - { path: /etc/nexus-alertmanager/templates, owner: root, group: alertmanager, mode: '0750' }
+    - { path: /var/lib/nexus-alertmanager, owner: alertmanager, group: alertmanager, mode: '0755' }
 
 # Drop placeholder configs so the binary smoke-checks have something to validate
 # against during bake. The TF overlay at apply time overwrites both files with

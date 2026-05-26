@@ -6,7 +6,7 @@
 # Phase 0.I.1, ADR-0038.
 
 global:
-  scrape_interval:     30s
+  scrape_interval: 30s
   evaluation_interval: 30s
   external_labels:
     cluster: nexus-observability
