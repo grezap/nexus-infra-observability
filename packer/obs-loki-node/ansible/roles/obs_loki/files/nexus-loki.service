@@ -1,0 +1,36 @@
+[Unit]
+Description=Grafana Loki (NexusPlatform; obs-loki-node simple-scalable, Phase 0.I.2)
+Documentation=https://grafana.com/docs/loki/latest/
+After=network-online.target observability-node-firstboot.service
+Wants=network-online.target
+Requires=observability-node-firstboot.service
+
+[Service]
+Type=simple
+User=loki
+Group=loki
+WorkingDirectory=/var/lib/nexus-loki
+ExecStart=/opt/loki/loki -config.file=/etc/nexus-loki/loki.yaml -log.level=info
+ExecReload=/bin/kill -HUP $MAINPID
+
+RuntimeDirectory=nexus-loki
+RuntimeDirectoryMode=0750
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target

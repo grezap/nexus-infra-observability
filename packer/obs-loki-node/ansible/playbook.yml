@@ -1,0 +1,27 @@
+---
+# obs-loki-node -- Ansible playbook (local, Packer ansible-local).
+# Per-engine template: Grafana Loki single-binary simple-scalable (Phase 0.I.2, ADR-0038).
+
+- name: Configure obs-loki-node template (Phase 0.I.2)
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_user: "{{ target_user | default('nexusadmin') }}"
+    obs_loki_version: "{{ obs_loki_version | default('3.5.1') }}"
+    obs_loki_download_url: >-
+      {{ obs_loki_download_url |
+         default('https://github.com/grafana/loki/releases/download/v3.5.1/loki-linux-amd64.zip') }}
+    obs_logcli_download_url: >-
+      {{ obs_logcli_download_url |
+         default('https://github.com/grafana/loki/releases/download/v3.5.1/logcli-linux-amd64.zip') }}
+
+  roles:
+    - nexus_identity
+    - nexus_network
+    - nexus_firewall
+    - nexus_observability
+    - observability_firstboot
+    - obs_loki

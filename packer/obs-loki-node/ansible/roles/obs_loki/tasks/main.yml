@@ -1,0 +1,149 @@
+---
+# obs_loki -- per-engine role for obs-loki-node (Phase 0.I.2, ADR-0038).
+# Installs Grafana Loki + logcli from upstream release zips (Go binaries;
+# no apt package -- the apt versions lag months behind upstream).
+#
+# nexus-loki.service is delivered DISABLED. The Terraform obs-loki env's
+# overlays render the per-host /etc/nexus-loki/loki.yaml at apply time
+# (memberlist ring members + S3 backend with KV-rendered access/secret keys
+# + TLS via Vault PKI), then enable + start all 3 nodes in parallel so the
+# ring forms.
+
+# ─── loki user + group ─────────────────────────────────────────────────────
+- name: Ensure loki group
+  ansible.builtin.group:
+    name: loki
+    system: true
+    state: present
+
+- name: Ensure loki user
+  ansible.builtin.user:
+    name: loki
+    group: loki
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/nexus-loki
+    create_home: false
+    state: present
+
+# ─── download + extract Loki ───────────────────────────────────────────────
+- name: Download Loki zip
+  ansible.builtin.get_url:
+    url: "{{ obs_loki_download_url }}"
+    dest: "/tmp/loki-{{ obs_loki_version }}.zip"
+    mode: '0644'
+    timeout: 180
+
+- name: Create /opt/loki
+  ansible.builtin.file:
+    path: /opt/loki
+    state: directory
+    owner: loki
+    group: loki
+    mode: '0755'
+
+- name: Extract Loki
+  ansible.builtin.unarchive:
+    src: "/tmp/loki-{{ obs_loki_version }}.zip"
+    dest: /opt/loki
+    owner: loki
+    group: loki
+    remote_src: true
+    creates: /opt/loki/loki-linux-amd64
+
+- name: Symlink loki to /usr/local/bin
+  ansible.builtin.file:
+    src: /opt/loki/loki-linux-amd64
+    dest: /usr/local/bin/loki
+    state: link
+
+- name: Mark loki binary executable
+  ansible.builtin.file:
+    path: /opt/loki/loki-linux-amd64
+    mode: '0755'
+
+- name: Provide a stable /opt/loki/loki path (for the systemd unit ExecStart)
+  ansible.builtin.file:
+    src: /opt/loki/loki-linux-amd64
+    dest: /opt/loki/loki
+    state: link
+
+# ─── download + extract logcli ─────────────────────────────────────────────
+- name: Download logcli zip
+  ansible.builtin.get_url:
+    url: "{{ obs_logcli_download_url }}"
+    dest: "/tmp/logcli-{{ obs_loki_version }}.zip"
+    mode: '0644'
+    timeout: 120
+
+- name: Extract logcli into /opt/loki
+  ansible.builtin.unarchive:
+    src: "/tmp/logcli-{{ obs_loki_version }}.zip"
+    dest: /opt/loki
+    owner: loki
+    group: loki
+    remote_src: true
+    creates: /opt/loki/logcli-linux-amd64
+
+- name: Symlink logcli to /usr/local/bin
+  ansible.builtin.file:
+    src: /opt/loki/logcli-linux-amd64
+    dest: /usr/local/bin/logcli
+    state: link
+
+- name: Mark logcli executable
+  ansible.builtin.file:
+    path: /opt/loki/logcli-linux-amd64
+    mode: '0755'
+
+# ─── config dirs + data dir ───────────────────────────────────────────────
+- name: Create /etc/nexus-loki + /var/lib/nexus-loki
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/nexus-loki, owner: root, group: loki, mode: '0750' }
+    - { path: /etc/nexus-loki/tls, owner: root, group: loki, mode: '0750' }
+    - { path: /var/lib/nexus-loki, owner: loki, group: loki, mode: '0755' }
+    - { path: /var/lib/nexus-loki/tsdb-shipper-active, owner: loki, group: loki, mode: '0755' }
+    - { path: /var/lib/nexus-loki/tsdb-shipper-cache, owner: loki, group: loki, mode: '0755' }
+    - { path: /var/lib/nexus-loki/compactor, owner: loki, group: loki, mode: '0755' }
+    - { path: /var/lib/nexus-loki/rules, owner: loki, group: loki, mode: '0755' }
+    - { path: /var/lib/nexus-loki/rules-temp, owner: loki, group: loki, mode: '0755' }
+    - { path: /var/lib/nexus-loki/wal, owner: loki, group: loki, mode: '0755' }
+
+- name: Drop placeholder loki.yaml (overwritten by TF overlay at apply)
+  ansible.builtin.copy:
+    src: loki.yaml
+    dest: /etc/nexus-loki/loki.yaml
+    owner: root
+    group: loki
+    mode: '0640'
+
+# ─── systemd unit (delivered DISABLED) ────────────────────────────────────
+- name: Install nexus-loki.service systemd unit
+  ansible.builtin.copy:
+    src: nexus-loki.service
+    dest: /etc/systemd/system/nexus-loki.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reload systemd + ensure nexus-loki DISABLED at bake
+  ansible.builtin.systemd:
+    name: nexus-loki.service
+    enabled: false
+    state: stopped
+    daemon_reload: true
+
+# ─── cleanup ──────────────────────────────────────────────────────────────
+- name: Remove downloaded zips
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/loki-{{ obs_loki_version }}.zip"
+    - "/tmp/logcli-{{ obs_loki_version }}.zip"

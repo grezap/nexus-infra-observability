@@ -1,0 +1,38 @@
+# PLACEHOLDER -- overwritten by terraform/envs/obs-loki/role-overlay-loki-config.tf
+# at apply time. The real config carries memberlist ring members + S3 backend
+# (bucket `loki` + Vault-rendered access/secret keys) + TLS via Vault PKI.
+#
+# Phase 0.I.2, ADR-0038.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /var/lib/nexus-loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+memberlist:
+  bind_port: 7946
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  filesystem:
+    directory: /var/lib/nexus-loki/chunks
+
+# Real config rendered post-apply.
