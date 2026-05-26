@@ -32,7 +32,7 @@ resource "null_resource" "tempo_config" {
 
   triggers = {
     tls_id         = null_resource.tempo_tls[each.key].id
-    tempo_config_v = "1"
+    tempo_config_v = "4" # v4: T18 -- querier.frontend_worker.frontend_address=127.0.0.1:9095
 
     destroy_vm_ip    = each.value.vmnet11
     destroy_ssh_user = var.obs_node_user
@@ -69,8 +69,7 @@ server:
     cert_file: /etc/nexus-tempo/tls/server.crt
     key_file:  /etc/nexus-tempo/tls/server.key
     client_auth_type: NoClientCert
-  # gRPC backplane :9095 stays plain-text (VMnet10 segmentation) -- mirrors
-  # the Loki T10 lesson (handbook §3.B T10).
+  # gRPC :9095 stays plain-text (VMnet10 segmentation; T10 lesson).
 
 distributor:
   receivers:
@@ -92,11 +91,17 @@ distributor:
 ingester:
   lifecycler:
     address: $vmnet10
+    interface_names: ["nic1"]
     ring:
       kvstore:
         store: memberlist
       replication_factor: 3
   max_block_duration: 5m
+
+# T18: scalable-single-binary needs explicit querier.frontend_worker.frontend_address.
+querier:
+  frontend_worker:
+    frontend_address: 127.0.0.1:9095
 
 memberlist:
   bind_addr: ["$vmnet10"]
@@ -106,7 +111,14 @@ memberlist:
     - "192.168.10.176:7946"
     - "192.168.10.177:7946"
 
+# T16: Tempo looks for eth0/en0 by default. Our NICs are nic0/nic1.
+# Explicit instance_interface_names avoids "no useable address found".
 compactor:
+  ring:
+    instance_interface_names: ["nic1"]
+    instance_addr: $vmnet10
+    kvstore:
+      store: memberlist
   compaction:
     block_retention: 168h
 
@@ -129,6 +141,11 @@ storage:
       path: /var/lib/nexus-tempo/blocks
 
 metrics_generator:
+  ring:
+    instance_interface_names: ["nic1"]
+    instance_addr: $vmnet10
+    kvstore:
+      store: memberlist
   storage:
     path: /var/lib/nexus-tempo/generator-wal
 EOT

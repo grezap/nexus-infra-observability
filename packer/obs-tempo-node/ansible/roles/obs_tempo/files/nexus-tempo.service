@@ -10,7 +10,10 @@ Type=simple
 User=tempo
 Group=tempo
 WorkingDirectory=/var/lib/nexus-tempo
-ExecStart=/opt/tempo/tempo -config.file=/etc/nexus-tempo/tempo.yaml
+# T15 transient: default `single-binary` mode is single-node-only (no memberlist
+# ring). `-target=scalable-single-binary` enables the memberlist-coordinated
+# multi-node mode (handbook §3.C).
+ExecStart=/opt/tempo/tempo -config.file=/etc/nexus-tempo/tempo.yaml -target=scalable-single-binary
 ExecReload=/bin/kill -HUP $MAINPID
 RuntimeDirectory=nexus-tempo
 RuntimeDirectoryMode=0750

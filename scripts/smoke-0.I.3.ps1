@@ -99,8 +99,8 @@ foreach ($ip in $tempoIps) {
     Test-Check -Description "$ip : VMnet10 backplane trust (memberlist :7946 + gRPC :9095)" -Probe {
         (Invoke-RemoteCommand -Ip $ip -Command 'sudo nft list chain inet filter input') -match 'saddr 192\.168\.10\.0/24 accept'
     } | Out-Null
-    Test-Check -Description "$ip : Tempo :3200 open on VMnet11" -Probe {
-        (Invoke-RemoteCommand -Ip $ip -Command 'sudo nft list chain inet filter input') -match 'dport 3200'
+    Test-Check -Description "$ip : Tempo :3200/:4317/:4318 open on VMnet11" -Probe {
+        (Invoke-RemoteCommand -Ip $ip -Command 'sudo nft list chain inet filter input') -match '3200, 4317, 4318'
     } | Out-Null
 }
 
@@ -112,7 +112,7 @@ foreach ($ip in $tempoIps) {
     } | Out-Null
     Test-Check -Description "$ip : tempo.yaml has memberlist + s3 sections" -Probe {
         $cfg = Invoke-RemoteCommand -Ip $ip -Command 'sudo cat /etc/nexus-tempo/tempo.yaml'
-        ($cfg -match 'memberlist:') -and ($cfg -match 'object_store: s3') -and ($cfg -match 'replication_factor: 3')
+        ($cfg -match 'memberlist:') -and ($cfg -match 'backend: s3') -and ($cfg -match 'replication_factor: 3')
     } | Out-Null
     Test-Check -Description "$ip : nexus-tempo.service active" -Probe {
         (Invoke-RemoteCommand -Ip $ip -Command 'systemctl is-active nexus-tempo.service') -match '(?m)^active\s*$'
