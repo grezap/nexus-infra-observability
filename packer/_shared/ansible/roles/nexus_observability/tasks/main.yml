@@ -34,12 +34,13 @@
     home: /var/lib/nexus-vector
     create_home: false
     groups: systemd-journal     # read journald
-    append: yes
+    append: true
     state: present
 
-- name: Download Vector {{ nexus_vector_version | default('0.50.0') }} tarball
+- name: "Download Vector tarball -- version {{ nexus_vector_version | default('0.50.0') }}"
   ansible.builtin.get_url:
-    url: "https://packages.timber.io/vector/{{ nexus_vector_version | default('0.50.0') }}/vector-{{ nexus_vector_version | default('0.50.0') }}-x86_64-unknown-linux-gnu.tar.gz"
+    url: >-
+      https://packages.timber.io/vector/{{ nexus_vector_version | default('0.50.0') }}/vector-{{ nexus_vector_version | default('0.50.0') }}-x86_64-unknown-linux-gnu.tar.gz
     dest: "/tmp/vector-{{ nexus_vector_version | default('0.50.0') }}.tar.gz"
     mode: '0644'
     timeout: 180
