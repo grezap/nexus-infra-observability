@@ -263,6 +263,65 @@ LB-tier HA canon. Includes the 5-step VIP failover sequence on BOTH VIPs
 
 ---
 
+### §1.7 Apply Phase 0.I.5 (OTel Collector pair)
+
+```powershell
+pwsh -File scripts\observability.ps1 otel apply
+```
+
+Single TF env `terraform/envs/obs-otel` brings up the 2-node active-active
+OTel Collector pair fronted by **round-robin DNS** `otel.nexus.lab`
+(NO VIP per ADR-0031 -- write paths retry with native exporter backoff).
+
+Apply graph (sequential per the `depends_on` chain):
+
+1. **modules (2)** -- clones `otel-collector-1` (.182) + `otel-collector-2`
+   (.183) from `obs-otel-collector-node` template + connects nic0/nic1 +
+   powers on.
+2. **otel-nftables-backplane** -- atomic `nft -f` per node: trust VMnet10
+   backplane (reserved) + OTLP gRPC :4317 + OTLP HTTP :4318 + SSH +
+   node_exporter from VMnet11.
+3. **otel-vault-agents (2)** -- installs `nexus-vault-agent.service` +
+   stages role-id/secret-id/ca-bundle from `$HOME\.nexus\vault-agent-
+   observability-otel-collector-{1,2}.json` + AppRole login + token-sink
+   verified.
+4. **otel-tls (2)** -- Vault Agent PKI template renders a leaf cert per
+   host into `/etc/nexus-otel-collector/tls/{server.crt,server.key,ca.crt}`.
+   SANs cover `<host>.nexus.lab`, `<host>`, `otel.nexus.lab` (the RR DNS),
+   `localhost`, IP SANs `192.168.10.<n>` + `192.168.70.<n>` + `127.0.0.1`.
+5. **otel-config (2)** -- writes `/etc/nexus-otel-collector/config.yaml`
+   with mTLS receivers + 3 exporters:
+     - `otlp/tempo` -> `tempo.nexus.lab:4317` (Tempo OTLP gRPC; tls.ca_file)
+     - `otlphttp/loki` -> `https://loki.nexus.lab:3100/otlp` (Loki 3.x
+       native OTLP; the deprecated `loki` exporter was removed in OTel
+       Collector 0.86+)
+     - `prometheusremotewrite` -> `https://prometheus.nexus.lab:9090/api/v1/write`
+       (basic auth from KV; Prom needs `--web.enable-remote-write-receiver`
+       -- enabled by 0.I.6 retrofit; until then exporter retries-with-backoff
+       and metrics queue locally on the collector)
+   Pipelines: `traces[otlp/tempo]` + `metrics[prometheusremotewrite]` +
+   `logs[otlphttp/loki]`. Enables + restarts `nexus-otel-collector.service`
+   in parallel.
+6. **otel-bootstrap** -- exit gate: services active, `/health` 200,
+   OTLP :4317+:4318 listening on both, RR DNS `otel.nexus.lab` resolves
+   to both `.182` + `.183`.
+
+**Wall-clock**: ~10-15 min on warm Vault + cold clones.
+
+### §1.8 Verify Phase 0.I.5
+
+```powershell
+pwsh -File scripts\smoke-0.I.5.ps1
+```
+
+~25 checks across 9 sections (reachability, firstboot, Vault Agent, mTLS,
+nftables, service health, OTLP listening, RR DNS, cross-tier Prom scrape).
+Expected: `ALL CHECKS GREEN`. The cross-tier integration (apps push
+OTLP -> Collector -> Tempo/Loki/Prom) is exercised in 0.I.6's smoke gate
+once fleet shippers are wired up.
+
+---
+
 ## §2 Phase status (per sub-phase)
 
 | Sub | What | Status | Smoke |
@@ -271,7 +330,7 @@ LB-tier HA canon. Includes the 5-step VIP failover sequence on BOTH VIPs
 | 0.I.2 | Loki SSD on MinIO | **LIVE-RATIFIED 2026-05-27** (6 transients fixed in source, §3.B T9-T14) | smoke-0.I.2 ~25/25 GREEN |
 | 0.I.3 | Tempo scalable on MinIO | **LIVE-RATIFIED 2026-05-27** (5 transients fixed, §3.C T15-T19) | smoke-0.I.3 ~24/24 GREEN |
 | 0.I.4 | Grafana HA + Grafana PG HA + 2 VIPs | **SEALED 2026-05-27** (live-ratified + cold-rebuild-proven; 10 transients fixed in source — §3.D T20-T29) | smoke-0.I.4 ALL CHECKS GREEN (default mode; PG VIP failover opt-in via `-Strict`) |
-| 0.I.5 | OTel Collector pair | pending | — |
+| 0.I.5 | OTel Collector pair | **SEALED 2026-05-27** (live-ratified + cold-rebuild-proven; 4 transients fixed in source -- §3.E T30-T33) | smoke-0.I.5 ALL CHECKS GREEN |
 | 0.I.6 | Fleet-wide shipper rollout | pending | — |
 | 0.I.7 | Close-out (canon + tag v0.1.0) | pending | — |
 
@@ -340,6 +399,15 @@ VIP). The known traps codified in [[keepalived-check-versioned-binary]] +
 pre-applied in the role overlays, so the expected transient count is
 lower than 0.I.1's first-of-tier (8 transients) -- 0-3 is the realistic
 range.
+
+### §3.E Phase 0.I.5 (OTel Collector pair) apply-time transients
+
+| # | Symptom | Root cause | Permanent fix |
+|---|---|---|---|
+| T30 | `obs-otel apply` errors after 25 min: `[otel-nftables otel-collector-2] SSH + firstboot marker never ready`. Both VMs are running + SSH-reachable, but `/var/lib/observability-node-firstboot-done` is MISSING. `systemctl status observability-node-firstboot` shows `Failed with result 'exit-code'` and a final line `chown: invalid group: 'root:otel'`. | The shared `observability_firstboot` script (`packer/_shared/ansible/roles/observability_firstboot/files/observability-node-firstboot.sh`) ends with `chown root:$IDENTITY_GROUP $IDENTITY_FILE`. For the `otel-collector` role it expects `IDENTITY_GROUP=otel` (per the case statement at line 175). My `obs_otel_collector` ansible role created group `otelcol` (the upstream OTel Collector binary's standard user/group name) -- mismatch -> firstboot fails -> firstboot-done marker never written -> the apply's `otel-nftables-backplane` overlay's 25-min wait-for-marker loop exhausts. | `packer/obs-otel-collector-node/ansible/roles/obs_otel_collector/defaults/main.yml` + `tasks/main.yml`: user/group changed from `otelcol` to `otel` (matches the shared firstboot's IDENTITY_GROUP mapping for `otel-collector` role). systemd unit's `User=`/`Group=` updated likewise. The upstream binary remains `/opt/otel-collector/otelcol-contrib` (not renamed -- `otelcol-contrib` is the upstream tarball binary name). Live recovery: `groupmod -n otel otelcol; usermod -l otel otelcol; chgrp -R otel /etc/nexus-otel-collector /var/lib/nexus-otel-collector /opt/otel-collector; sed -i 's/User=otelcol/User=otel/; s/Group=otelcol/Group=otel/' /etc/systemd/system/nexus-otel-collector.service; systemctl daemon-reload; systemctl reset-failed observability-node-firstboot; systemctl start observability-node-firstboot`. Caught 2026-05-27 on first `obs-otel apply`. |
+| T31 | After T30 source fix + live recovery, re-apply fails at `[otel-tls otel-collector-1] cert render stage failed` -- the tls-split shell script's `sudo install -m 0644 -o otelcol -g otelcol ...` fails with `chown: invalid user: 'otelcol:otelcol'` (live group renamed to `otel`). | The `otelcol`->`otel` rename had to propagate to EVERY overlay that hardcoded the user/group, not just the Packer template's ansible role. The tls overlay's leaf-split bash script + the config overlay's `sudo chown root:otelcol` post-render command both had `otelcol` hardcoded. | `terraform/envs/obs-otel/role-overlay-otel-tls.tf` + `role-overlay-otel-config.tf`: replace `otelcol` -> `otel` (user + group, install + chown invocations). Caught 2026-05-27 in the second + third `obs-otel apply`. |
+| T32 | After T30+T31 fixes, otel-collector restarts in a crashloop with `Error: invalid configuration: exporters::otlp/tempo: requires a non-empty "endpoint"`. `cat /etc/nexus-otel-collector/config.yaml` shows `endpoint: :4317` (empty before the colon). | The PowerShell here-string contained `endpoint: $tempoDns:4317`. PowerShell parses `$tempoDns:4317` as `$tempoDns` in scope qualifier `4317` ([[powershell-url-scope-qualifier]]) -> the variable evaluates to empty + literal `:4317` is appended. Same trap as 0.I.1 T5 (`$peerVmnet10:9094` AM peer config). | `terraform/envs/obs-otel/role-overlay-otel-config.tf`: brace the variable name -- `endpoint: $${tempoDns}:4317` (Terraform `$$` heredoc-escape leaves a literal `${tempoDns}` which PowerShell then interpolates correctly). Same fix for `$${promDns}` + `$${lokiDns}`. Caught 2026-05-27 in the fourth `obs-otel apply`. |
+| T33 | First attempt at T32's fix used `${tempoDns}` (single dollar). Terraform parses `${...}` as a TF interpolation reference: `Invalid reference: A reference to a resource type must be followed by at least one attribute access, specifying the resource name`. | Terraform heredoc body interpolates `${...}` syntax. Variables intended to pass through to a downstream shell/script need the `$$` double-dollar escape: `$${tempoDns}` -> Terraform writes literal `${tempoDns}` -> PowerShell sees `${tempoDns}` -> interpolates the variable value. | See T32 fix -- the `$$` escape is canon for any `${var}` that needs to survive Terraform's heredoc-time interpolation. Pattern reference: [[terraform-heredoc-powershell]] (3-rule canon: `$${var}` for PowerShell + `$${var}:` for scope-qualifier + no backtick-letter in inner here-strings). |
 
 ### §3.1 Cold-rebuild canon
 

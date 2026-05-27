@@ -1,0 +1,5 @@
+---
+# obs_otel_collector role handlers
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true

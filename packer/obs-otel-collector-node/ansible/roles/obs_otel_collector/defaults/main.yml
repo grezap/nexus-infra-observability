@@ -1,0 +1,7 @@
+---
+# obs_otel_collector role defaults (Phase 0.I.5)
+obs_otel_version: 0.117.0
+obs_otel_user: otel
+obs_otel_group: otel
+obs_otel_identity_dir: /etc/nexus-otel-collector
+obs_otel_download_url: https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.117.0/otelcol-contrib_0.117.0_linux_amd64.tar.gz

@@ -1,0 +1,145 @@
+---
+# obs_otel_collector -- install OTel Collector Contrib from the upstream
+# release tarball. nexus-otel-collector.service is delivered DISABLED. The
+# Terraform overlay renders /etc/nexus-otel-collector/config.yaml + TLS
+# material, then enables + starts the unit.
+
+- name: Ensure otel group
+  ansible.builtin.group:
+    name: "{{ obs_otel_group }}"
+    system: true
+    state: present
+
+- name: Ensure otel user
+  ansible.builtin.user:
+    name: "{{ obs_otel_user }}"
+    group: "{{ obs_otel_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/nexus-otel-collector
+    create_home: false
+    state: present
+
+- name: Download OTel Collector Contrib tarball
+  ansible.builtin.get_url:
+    url: "{{ obs_otel_download_url }}"
+    dest: "/tmp/otelcol-contrib-{{ obs_otel_version }}.tar.gz"
+    mode: '0644'
+    timeout: 180
+
+- name: Create /opt/otel-collector
+  ansible.builtin.file:
+    path: /opt/otel-collector
+    state: directory
+    owner: "{{ obs_otel_user }}"
+    group: "{{ obs_otel_group }}"
+    mode: '0755'
+
+- name: Extract OTel Collector Contrib
+  ansible.builtin.unarchive:
+    src: "/tmp/otelcol-contrib-{{ obs_otel_version }}.tar.gz"
+    dest: /opt/otel-collector
+    owner: "{{ obs_otel_user }}"
+    group: "{{ obs_otel_group }}"
+    remote_src: true
+    creates: /opt/otel-collector/otelcol-contrib
+
+- name: Mark otelcol-contrib binary executable
+  ansible.builtin.file:
+    path: /opt/otel-collector/otelcol-contrib
+    mode: '0755'
+
+- name: Symlink otelcol-contrib to /usr/local/bin
+  ansible.builtin.file:
+    src: /opt/otel-collector/otelcol-contrib
+    dest: /usr/local/bin/otelcol-contrib
+    state: link
+
+- name: Create /etc/nexus-otel-collector + /var/lib/nexus-otel-collector
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/nexus-otel-collector, owner: root, group: otel, mode: '0750' }
+    - { path: /etc/nexus-otel-collector/tls, owner: root, group: otel, mode: '0750' }
+    - { path: /var/lib/nexus-otel-collector, owner: otel, group: otel, mode: '0755' }
+
+- name: Drop placeholder config.yaml (overwritten by TF overlay at apply)
+  ansible.builtin.copy:
+    dest: /etc/nexus-otel-collector/config.yaml
+    content: |
+      # PLACEHOLDER -- overwritten by terraform/envs/obs-otel/role-overlay-otel-config.tf
+      # at apply time. Phase 0.I.5, ADR-0038.
+      receivers:
+        otlp:
+          protocols:
+            grpc: { endpoint: 0.0.0.0:4317 }
+            http: { endpoint: 0.0.0.0:4318 }
+      processors:
+        batch: {}
+      exporters:
+        debug: {}
+      service:
+        pipelines:
+          traces:  { receivers: [otlp], processors: [batch], exporters: [debug] }
+          metrics: { receivers: [otlp], processors: [batch], exporters: [debug] }
+          logs:    { receivers: [otlp], processors: [batch], exporters: [debug] }
+    owner: root
+    group: otel
+    mode: '0640'
+
+- name: Install nexus-otel-collector.service systemd unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nexus-otel-collector.service
+    content: |
+      [Unit]
+      Description=NexusPlatform OpenTelemetry Collector (Phase 0.I.5, ADR-0038)
+      Documentation=https://opentelemetry.io/docs/collector/
+      After=network-online.target observability-node-firstboot.service
+      Wants=network-online.target
+      Requires=observability-node-firstboot.service
+
+      [Service]
+      Type=simple
+      User=otel
+      Group=otel
+      WorkingDirectory=/var/lib/nexus-otel-collector
+      ExecStart=/opt/otel-collector/otelcol-contrib --config /etc/nexus-otel-collector/config.yaml
+      ExecReload=/bin/kill -HUP $MAINPID
+      Restart=on-failure
+      RestartSec=10s
+      TimeoutStopSec=30s
+      LimitNOFILE=65536
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectHome=true
+      ProtectSystem=full
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reload systemd + ensure nexus-otel-collector DISABLED at bake
+  ansible.builtin.systemd:
+    name: nexus-otel-collector.service
+    enabled: false
+    state: stopped
+    daemon_reload: true
+
+- name: Remove downloaded tarball
+  ansible.builtin.file:
+    path: "/tmp/otelcol-contrib-{{ obs_otel_version }}.tar.gz"
+    state: absent
+
+- name: Verify OTel Collector binary
+  ansible.builtin.command: /opt/otel-collector/otelcol-contrib --version
+  changed_when: false
+
+- name: Show install summary
+  ansible.builtin.debug:
+    msg: "OTel Collector Contrib {{ obs_otel_version }} installed; service DISABLED until overlay apply"

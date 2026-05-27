@@ -40,6 +40,19 @@ versions per NexusPlatform sub-phase tags.
   handbook §3.C T15-T19; needs `-target=scalable-single-binary` flag +
   `instance_interface_names=["nic1"]`).
 
+### Sealed — 0.I.5 (2026-05-27)
+
+- **0.I.5 OTel Collector pair SEALED** -- 2 nodes (otel-collector-1/2 at
+  .182/.183) active-active fronted by round-robin DNS `otel.nexus.lab` (no VIP
+  per ADR-0031). OTLP gRPC :4317 + HTTP :4318 receivers; routes traces ->
+  `tempo.nexus.lab:4317`, metrics -> `prometheus.nexus.lab:9090/api/v1/write`
+  (basic auth from KV), logs -> `loki.nexus.lab:3100/otlp` (Loki 3.x native
+  OTLP receiver). mTLS via observability-server PKI. 4 transients permanently
+  fixed in source (handbook §3.E T30-T33: otelcol->otel rename / overlay
+  hardcoded-user / PowerShell scope-qualifier / Terraform `$$` heredoc escape).
+  Live-ratified + cold-rebuild-proven; `smoke-0.I.5` ALL CHECKS GREEN both
+  passes. Fleet 107 VMs + 5 VIPs cold-rebuild-proven.
+
 ### Sealed — 0.I.4 (2026-05-27)
 
 - **0.I.4 Grafana HA + Grafana PG HA + 2 VRRP VIPs SEALED** -- live-ratified

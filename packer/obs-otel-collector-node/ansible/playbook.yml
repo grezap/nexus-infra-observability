@@ -1,0 +1,24 @@
+---
+# obs-otel-collector-node -- Ansible playbook (local, Packer ansible-local).
+# Per-engine template: OTel Collector Contrib (Phase 0.I.5, ADR-0038).
+
+- name: Configure obs-otel-collector-node template (Phase 0.I.5)
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_user: "{{ target_user | default('nexusadmin') }}"
+    obs_otel_version: "{{ obs_otel_version | default('0.117.0') }}"
+    obs_otel_download_url: >-
+      {{ obs_otel_download_url |
+         default('https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.117.0/otelcol-contrib_0.117.0_linux_amd64.tar.gz') }}
+
+  roles:
+    - nexus_identity
+    - nexus_network
+    - nexus_firewall
+    - nexus_observability
+    - observability_firstboot
+    - obs_otel_collector
