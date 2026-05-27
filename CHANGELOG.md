@@ -40,6 +40,24 @@ versions per NexusPlatform sub-phase tags.
   handbook §3.C T15-T19; needs `-target=scalable-single-binary` flag +
   `instance_interface_names=["nic1"]`).
 
+### Sealed — 0.I.6 (2026-05-28)
+
+- **0.I.6 Fleet-wide shipper rollout SEALED** -- Vector log shipper added to
+  the `nexus_observability` shared ansible role (Phase 0.I.6 source canon).
+  Every cold-baked Packer template now installs Vector + drops baseline
+  vector.yaml + ships journald + /var/log/* to Loki HA pair (loki.nexus.lab:3100).
+  `scripts/fleet-vector-rollout.ps1` retrofits the live fleet WITHOUT
+  template rebuilds: all 12 currently-running Linux fleet nodes have
+  nexus-vector.service active (foundation 4 + obs 8). `smoke-0.I.6` ALL
+  CHECKS GREEN (default mode; end-to-end Loki probe opt-in via
+  `-EndToEnd`). 4 transients permanently fixed in source
+  (handbook §3.F T34-T37: opentelemetry-sink encoding mismatch -> loki
+  native sink / data_dir / DNS bootstrap / fleet IP-table drift).
+  Existing tiers (kafka/oltp/analytics/lakehouse/registry) pick up Vector
+  via `fleet-vector-rollout.ps1` when their nodes are next powered on,
+  OR via cold-rebuild of their templates (which carry the updated shared
+  role). ws2025-desktop windows_exporter retrofit pending.
+
 ### Sealed — 0.I.5 (2026-05-27)
 
 - **0.I.5 OTel Collector pair SEALED** -- 2 nodes (otel-collector-1/2 at
