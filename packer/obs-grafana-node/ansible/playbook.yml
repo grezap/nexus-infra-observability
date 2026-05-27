@@ -1,0 +1,21 @@
+---
+# obs-grafana-node -- Ansible playbook (local, Packer ansible-local).
+# Per-engine template: Grafana OSS 11.x + keepalived (Phase 0.I.4, ADR-0038).
+
+- name: Configure obs-grafana-node template (Phase 0.I.4)
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_user: "{{ target_user | default('nexusadmin') }}"
+    obs_grafana_version: "{{ obs_grafana_version | default('11.6.3') }}"
+
+  roles:
+    - nexus_identity
+    - nexus_network
+    - nexus_firewall
+    - nexus_observability
+    - observability_firstboot
+    - obs_grafana

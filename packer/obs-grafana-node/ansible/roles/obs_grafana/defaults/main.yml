@@ -1,0 +1,8 @@
+---
+# obs_grafana role defaults (Phase 0.I.4)
+obs_grafana_version: 11.6.3
+obs_grafana_user: grafana
+obs_grafana_group: grafana
+obs_grafana_identity_dir: /etc/nexus-grafana
+obs_grafana_apt_key_url: https://apt.grafana.com/gpg.key
+obs_grafana_apt_repo: deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main

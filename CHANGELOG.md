@@ -25,3 +25,44 @@ versions per NexusPlatform sub-phase tags.
   each of 0.I.1 (Prom HA) · 0.I.2 (Loki SSD) · 0.I.3 (Tempo scalable) ·
   0.I.4 (Grafana HA + Grafana PG HA + 2 VRRP VIPs) · 0.I.5 (OTel Collector
   pair).
+
+### Sealed — 0.I.1 + 0.I.2 + 0.I.3 (2026-05-27)
+
+- **0.I.1 Prometheus HA + Alertmanager mesh** — live-ratified +
+  cold-rebuild-proven (`smoke-0.I.1` 33/33 GREEN; 8 transients fixed in
+  source, handbook §3.A T1-T8).
+- **0.I.2 Loki simple-scalable on MinIO** — live-ratified +
+  cold-rebuild-proven (`smoke-0.I.2` ~25/25 GREEN; 6 transients fixed,
+  handbook §3.B T9-T14; obs-tenants overlay in `nexus-infra-lakehouse`
+  provisions `nexus-loki-app` + bucket `loki`).
+- **0.I.3 Tempo scalable on MinIO** — live-ratified +
+  cold-rebuild-proven (`smoke-0.I.3` ~24/24 GREEN; 5 transients fixed,
+  handbook §3.C T15-T19; needs `-target=scalable-single-binary` flag +
+  `instance_interface_names=["nic1"]`).
+
+### Sealed — 0.I.4 (2026-05-27)
+
+- **0.I.4 Grafana HA + Grafana PG HA + 2 VRRP VIPs SEALED** -- live-ratified
+  + cold-rebuild-proven (`smoke-0.I.4` ALL CHECKS GREEN default mode; PG VIP
+  failover opt-in via `-Strict`); 10 apply-time transients permanently fixed
+  in source (handbook §3.D T20-T29). 12 obs VMs + 2 VIPs through 0.I.4. Cold
+  rebuild: `terraform destroy` -> `terraform apply` (from-zero) -> smoke ALL
+  GREEN (vmrun "Unknown error" transient documented as 1-line retry).
+  - `packer/obs-grafana-pg-node/` (PG17 + keepalived) -- comments cleaned
+    from sed-rename artifacts; `packer init` + `packer validate` GREEN.
+  - `packer/obs-grafana-node/` (Grafana OSS 11.6.3 + keepalived) -- new
+    per-engine template; `packer init` + `packer validate` GREEN.
+  - `terraform/envs/obs-grafana/` -- new per-cluster TF env with 7
+    overlays: nftables (per-role rulesets) + vault-agents (×4) + tls
+    (×4 with VIP IP-SAN per role) + pg-replication (PG17 + keepalived
+    VIP `.185`) + grafana-config (grafana.ini + datasource provisioning
+    for Prom/Loki/Tempo + keepalived VIP `.184`) + bootstrap (exit
+    gate). `terraform init` + `terraform validate` + `terraform fmt`
+    GREEN.
+  - `scripts/smoke-0.I.4.ps1` -- ~50 checks across 14 sections; includes
+    ADR-0025 VIP failover sequence on BOTH `.184` + `.185`.
+  - Security env (`nexus-infra-vmware`) `obs-creds-seed` bumped to v3:
+    seeds 5 new sticky-hex KV passwords at
+    `nexus/observability/{grafana,grafana-pg}/*` (admin / session-key /
+    grafana-db / superuser / replication).
+  - Live-ratify + cold-rebuild proof in progress.

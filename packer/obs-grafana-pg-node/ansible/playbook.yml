@@ -1,0 +1,22 @@
+---
+# obs-grafana-pg-node -- Ansible playbook (local, Packer ansible-local).
+# Per-engine template: PostgreSQL 17 (PGDG) + keepalived for the Grafana catalog
+# metadata store (master-replica HA).
+
+- name: Configure obs-grafana-pg-node template (Phase 0.I.4)
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_user: "{{ target_user | default('nexusadmin') }}"
+    observability_pg_version: "{{ observability_pg_version | default(17) }}"
+
+  roles:
+    - nexus_identity
+    - nexus_network
+    - nexus_firewall
+    - nexus_observability
+    - observability_firstboot
+    - obs_grafana_pg

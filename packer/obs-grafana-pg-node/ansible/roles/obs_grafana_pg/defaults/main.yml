@@ -1,0 +1,6 @@
+---
+# obs_grafana_pg role defaults
+observability_pg_version: 17
+observability_pg_user: postgres
+observability_pg_group: postgres
+observability_pg_identity_dir: /etc/nexus-grafana-pg

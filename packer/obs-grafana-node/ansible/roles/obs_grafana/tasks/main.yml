@@ -1,0 +1,126 @@
+---
+# obs_grafana role -- install Grafana OSS {{ obs_grafana_version }}
+# (apt.grafana.com `stable` channel) + keepalived. Services delivered DISABLED.
+# The Terraform obs-grafana env's overlays render config (grafana.ini +
+# provisioning + TLS) + keepalived.conf, then enable + start the units.
+
+# ─── Grafana apt repo ────────────────────────────────────────────────────
+- name: Install prerequisites for Grafana apt
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: false
+
+- name: Ensure /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Fetch Grafana signing key (apt.grafana.com)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ ! -s /etc/apt/keyrings/grafana.gpg ]; then
+      curl -fsSL {{ obs_grafana_apt_key_url }} \
+        | gpg --dearmor > /tmp/grafana.gpg
+      install -m 0644 -o root -g root /tmp/grafana.gpg /etc/apt/keyrings/grafana.gpg
+      rm -f /tmp/grafana.gpg
+    fi
+  args:
+    creates: /etc/apt/keyrings/grafana.gpg
+
+- name: Write Grafana apt source
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/grafana.list
+    content: |
+      {{ obs_grafana_apt_repo }}
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Apt-get update after Grafana apt source written
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install Grafana OSS {{ obs_grafana_version }} (apt-pinned to the exact build)
+  ansible.builtin.apt:
+    name: "grafana={{ obs_grafana_version }}"
+    state: present
+    update_cache: false
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Install keepalived (VRRP VIP for the Grafana HA front door)
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+    update_cache: false
+
+# ─── Disable apt-shipped services at bake (overlay enables + starts) ──────
+# Grafana ships `grafana-server.service` enabled by default; keepalived ships
+# disabled. Force-disable both so a fresh clone doesn't auto-start a Grafana
+# bound to the apt-default config (file-based SQLite) before the overlay has
+# pointed it at the shared PG state-DB.
+- name: Stop grafana-server.service if running
+  ansible.builtin.systemd:
+    name: grafana-server.service
+    state: stopped
+  failed_when: false
+
+- name: Disable grafana-server.service (apt-shipped default)
+  ansible.builtin.systemd:
+    name: grafana-server.service
+    enabled: false
+  failed_when: false
+
+- name: Disable keepalived at bake (overlay renders config + enables)
+  ansible.builtin.systemd:
+    name: keepalived.service
+    state: stopped
+    enabled: false
+  failed_when: false
+
+# ─── grafana user/group + per-node dirs ──────────────────────────────────
+- name: Verify grafana group exists
+  ansible.builtin.getent:
+    database: group
+    key: "{{ obs_grafana_group }}"
+
+- name: Create nexus-grafana directories (identity + TLS)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: "{{ obs_grafana_group }}"
+    mode: '0750'
+  loop:
+    - "{{ obs_grafana_identity_dir }}"
+    - "{{ obs_grafana_identity_dir }}/tls"
+
+- name: Ensure /etc/grafana/provisioning/datasources exists
+  ansible.builtin.file:
+    path: /etc/grafana/provisioning/datasources
+    state: directory
+    owner: root
+    group: "{{ obs_grafana_group }}"
+    mode: '0750'
+
+# ─── Verify ──────────────────────────────────────────────────────────────
+- name: Verify Grafana + keepalived binaries
+  ansible.builtin.command: "{{ item }}"
+  changed_when: false
+  loop:
+    - "/usr/sbin/grafana-server -v"
+    - "/usr/sbin/grafana-cli -v"
+    - "/usr/sbin/keepalived --version"
+
+- name: Show install summary
+  ansible.builtin.debug:
+    msg: "Grafana OSS {{ obs_grafana_version }} + keepalived installed; services DISABLED until overlay apply"

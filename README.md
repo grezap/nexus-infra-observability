@@ -10,7 +10,13 @@ behind a second VRRP VIP + OTel Collector pair. Part of the
 Terraform state + per-engine Packer template canon
 ([nexus-platform-plan ADR-0038](https://github.com/grezap/nexus-platform-plan/blob/main/docs/adr/ADR-0038-observability-tier-grafana-stack-ha.md)).
 
-> Status: **Phase 0.I scaffolded 2026-05-26 — sub-phases 0.I.1–0.I.7 in flight.**
+> Status (2026-05-27): **0.I.1 + 0.I.2 + 0.I.3 + 0.I.4 SEALED** — all
+> live-ratified + cold-rebuild-proven; Prom HA + Alertmanager mesh, Loki SSD
+> on MinIO, Tempo scalable on MinIO, Grafana HA + Grafana PG HA + 2 VRRP VIPs
+> (`.184` + `.185`); smoke gates 33/33 + ~25/25 + ~24/24 + ALL GREEN respectively;
+> 31 apply-time transients fixed in source (handbook §3.A T1-T8 / §3.B T9-T14 /
+> §3.C T15-T19 / §3.D T20-T29). 0.I.5 (OTel Collector pair) + 0.I.6 (fleet-wide
+> shipper rollout) + 0.I.7 (close-out, tag `v0.1.0`) pending.
 > Supersedes the original singleton `obs-{metrics,tracing,logging}` reservation
 > in `nexus-platform-plan/docs/infra/vms.yaml` (ADR-0038 §Context).
 

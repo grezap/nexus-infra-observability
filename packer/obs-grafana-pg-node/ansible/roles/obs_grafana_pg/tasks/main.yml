@@ -1,0 +1,177 @@
+---
+# obs_grafana_pg role -- install PostgreSQL {{ observability_pg_version }}
+# (PGDG) + keepalived. The dedicated master-replica HA Postgres state store
+# backing Grafana HA (sessions, dashboards, users, datasources). Services
+# delivered DISABLED -- the Terraform pg-replication overlay configures
+# postgresql.conf/pg_hba.conf, creates the replication + grafana roles +
+# grafana DB (primary) / pg_basebackup (replica), renders keepalived.conf,
+# then enables + starts the services.
+#
+# deb13 (trixie) PGDG note: reuses the oltp_patroni bookworm-fallback for the
+# t64-renamed deps (libicu72 + libldap-2.5-0). See feedback (Patroni 0.G.4 #4).
+
+# ─── PGDG apt repo ────────────────────────────────────────────────────────
+- name: Install prerequisites for PGDG apt
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: false
+
+- name: Ensure /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Fetch PGDG signing key (apt.postgresql.org)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ ! -s /etc/apt/keyrings/pgdg.gpg ]; then
+      curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        | gpg --dearmor > /tmp/pgdg.gpg
+      install -m 0644 -o root -g root /tmp/pgdg.gpg /etc/apt/keyrings/pgdg.gpg
+      rm -f /tmp/pgdg.gpg
+    fi
+  args:
+    creates: /etc/apt/keyrings/pgdg.gpg
+
+- name: Write PGDG apt source (bookworm-pgdg pinned -- trixie PGDG lags)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pgdg.list
+    content: |
+      deb [signed-by=/etc/apt/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Apt-get update after PGDG apt source written
+  ansible.builtin.apt:
+    update_cache: true
+
+# PGDG bookworm-built PG 17 depends on libicu72 + libldap-2.5-0, both
+# renamed/bumped in Debian 13 trixie's t64 transition. Add a narrow bookworm
+# fallback source pinned low, pull ONLY those two libs from it.
+- name: Add Debian bookworm fallback apt source (libicu72 + libldap-2.5-0 only)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/bookworm-pg-deps.list
+    content: |
+      deb http://deb.debian.org/debian bookworm main
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Pin bookworm apt repo to low priority (only the 2 explicit libs pull from it)
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/bookworm-pg-deps.pref
+    content: |
+      Package: *
+      Pin: release n=bookworm
+      Pin-Priority: 100
+
+      Package: libicu72 libldap-2.5-0
+      Pin: release n=bookworm
+      Pin-Priority: 990
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Apt-get update after bookworm fallback source added
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install PG-required libs from bookworm (libicu72 + libldap-2.5-0)
+  ansible.builtin.apt:
+    name:
+      - libicu72
+      - libldap-2.5-0
+    state: present
+    update_cache: false
+    default_release: bookworm
+
+- name: Install PostgreSQL {{ observability_pg_version }} server + client + contrib
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ observability_pg_version }}"
+      - "postgresql-client-{{ observability_pg_version }}"
+      - "postgresql-contrib-{{ observability_pg_version }}"
+    state: present
+    update_cache: false
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Install keepalived (VRRP VIP for the Grafana state-DB front door)
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+    update_cache: false
+
+# ─── Disable apt-shipped services at bake (overlay enables + starts) ──────
+# Unlike the Patroni tier we KEEP the default `main` cluster: the primary's
+# overlay reconfigures it; the replica's overlay wipes + pg_basebackup. We just
+# disable the units so a fresh clone doesn't auto-start a stale cluster before
+# the overlay has configured replication.
+- name: Stop apt-shipped postgresql.service if running
+  ansible.builtin.systemd:
+    name: postgresql.service
+    state: stopped
+  failed_when: false
+
+- name: Disable postgresql.service (apt-shipped umbrella)
+  ansible.builtin.systemd:
+    name: postgresql.service
+    enabled: false
+
+- name: Stop apt-shipped postgresql@{{ observability_pg_version }}-main.service if running
+  ansible.builtin.systemd:
+    name: "postgresql@{{ observability_pg_version }}-main.service"
+    state: stopped
+  failed_when: false
+
+- name: Disable postgresql@{{ observability_pg_version }}-main.service (apt-shipped instance)
+  ansible.builtin.systemd:
+    name: "postgresql@{{ observability_pg_version }}-main.service"
+    enabled: false
+  failed_when: false
+
+- name: Disable keepalived at bake (overlay renders config + enables)
+  ansible.builtin.systemd:
+    name: keepalived.service
+    state: stopped
+    enabled: false
+  failed_when: false
+
+# ─── postgres user/group + per-node dirs ──────────────────────────────────
+- name: Verify postgres group exists
+  ansible.builtin.getent:
+    database: group
+    key: "{{ observability_pg_group }}"
+
+- name: Create nexus-grafana-pg directories (identity + TLS)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: "{{ observability_pg_group }}"
+    mode: '0750'
+  loop:
+    - "{{ observability_pg_identity_dir }}"
+    - "{{ observability_pg_identity_dir }}/tls"
+
+# ─── Verify ──────────────────────────────────────────────────────────────
+- name: Verify PostgreSQL + keepalived binaries
+  ansible.builtin.command: "{{ item }}"
+  changed_when: false
+  loop:
+    - "/usr/lib/postgresql/{{ observability_pg_version }}/bin/postgres --version"
+    - "/usr/sbin/keepalived --version"
+
+- name: Show install summary
+  ansible.builtin.debug:
+    msg: "PostgreSQL {{ observability_pg_version }} (PGDG) + keepalived installed; services DISABLED until overlay apply"
