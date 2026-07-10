@@ -448,3 +448,10 @@ pwsh -File scripts\observability.ps1 all apply
 Expected outcome: all 7 sub-phase smoke gates GREEN with no operator hot-state.
 
 (Per-sub-phase runbooks land in §3.x as they seal.)
+
+### §3.1c — CA rollover: tier on the new Vault PKI root
+The platform-wide CA rollover completed 2026-07-04/05; the observability tier was
+cold-rebuilt onto the v0.8.1-greenfield Vault PKI root via the §3.1 cold-rebuild
+canon — no source `.tf`/ansible changed. Every obs node now presents **new-root**
+leaf certs on every TLS channel, so like every other tier the observability tier
+is on the new Vault root. See the CHANGELOG `[Unreleased]` CA-rollover entry.

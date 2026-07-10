@@ -10,6 +10,15 @@ versions per NexusPlatform sub-phase tags.
 > flight. Supersedes the original singleton `obs-{metrics,tracing,logging}`
 > reservation in `nexus-platform-plan/docs/infra/vms.yaml`.
 
+### Platform CA rollover — tier on the new Vault root (2026-07-04/05)
+
+- The platform-wide Vault PKI CA rollover completed 2026-07-04/05. The
+  observability tier was cold-rebuilt onto the v0.8.1-greenfield Vault PKI root
+  via the handbook §3.1 cold-rebuild canon — no source `.tf`/ansible changed.
+  Every obs node now presents **new-root** `observability-server` leaf certs on
+  every TLS channel, so like every other tier the observability tier is on the
+  new Vault root. See handbook §3.1c.
+
 ### Added — repo bootstrap (2026-05-26)
 
 - New repo / tier: foundation-tier extension `01-foundation`. 14 VMs + 2 VRRP
