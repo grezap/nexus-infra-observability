@@ -19,6 +19,7 @@ ExecStart=/usr/local/bin/prometheus \
   --web.config.file=/etc/nexus-prometheus/web.yml \
   --web.enable-lifecycle \
   --web.enable-admin-api \
+  --web.enable-remote-write-receiver \
   --web.external-url=https://prometheus.nexus.lab/ \
   --web.route-prefix=/
 
